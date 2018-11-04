@@ -1,8 +1,11 @@
 import { async } from '@angular/core/testing';
-import { AngularFireDatabase } from 'angularfire2/database';
+import { AngularFireDatabase, FirebaseListObservable, FirebaseObjectObservable } from 'angularfire2/database';
 import { Injectable } from '@angular/core';
 import { Product } from './models/product';
-import 'rxjs/add/operator/take';
+import { take } from 'rxjs/operators';
+import { ShoppingCart } from './models/shopping-cart';
+import { map } from 'rxjs/operators';
+import { Observable } from 'rxjs';
 
 @Injectable({
   providedIn: 'root'
@@ -17,11 +20,16 @@ export class ShoppingCartService {
      })
   }
 
-  private getCart(cartId: string){
-    return this.db.object('/shopping-cart/'+cartId)
-
+   async getCart():Promise<Observable<ShoppingCart>>{
+     let cartId = await this.getOrCreateCartId();
+    return this.db.object('/shopping-carts/' + cartId)
+    .pipe(map(x => new ShoppingCart(x.items)));
   } 
-  private async getOrCreateCartId(){
+
+  private getItem(cartId: string, productId:string){
+    return this.db.object('/shopping-carts/'+ cartId + '/items/' + productId);
+  }
+  private async getOrCreateCartId():Promise<string>{
     let cartId = localStorage.getItem('cartId');
     if (cartId) return cartId;
 
@@ -31,10 +39,28 @@ export class ShoppingCartService {
   }
 
   async addToCart(product: Product){
+      this.updateItem(product,1);
+  }
+ async removeFromCart(product: Product){
+    this.updateItem(product,-1);
+  }
+  async clearCart(){
       let cartId = await this.getOrCreateCartId();
-      let item$ = this.db.object('/shopping-carts/'+ cartId + '/items/' + product.$key);
-      // item$.take(1).subscribe(item => {
-      //     if (item.$exists()) items$.update({ quantity: item.quantity + 1 }); 
-      // });
+      this.db.object('/shopping-carts/' + cartId + '/items').remove();
+  }
+
+  private async updateItem(product:Product,change: number){
+    let cartId = await this.getOrCreateCartId();
+      let item$ = this.getItem(cartId,product.$key);
+       item$.pipe(take(1)).subscribe(item => {
+         let quantity =  (item.quantity || 0) + change ;
+         if(quantity === 0) item$.remove();
+         else item$.update({
+              title: product.title,
+              imageUrl: product.imageUrl,
+              price: product.price, 
+              quantity: quantity
+            });
+       });
   }
 }
